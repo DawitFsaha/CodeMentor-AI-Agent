@@ -12,6 +12,8 @@ dependencies = [
     "openai==2.19.0",
     "eval-type-backport>=0.2.0; python_version < '3.10'",
     "python-dotenv>=1.0.0",
+    "gradio>=4.44,<5.0",
+    "huggingface-hub<1.0",
     "pytest>=8.0",
 ]
 
@@ -20,6 +22,9 @@ codementor = "codementor_ai.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+codementor_ai = ["assets/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -64,7 +64,8 @@ codementor "Write a Python function that adds two numbers" --language Python
 
 The command makes five model calls through the Coordinator, Code Writer, Review,
 Testing, and final Coordinator steps. It requires a valid `OPENAI_API_KEY` and may
-incur API usage costs.
+incur API usage costs. Requests are persisted in `codementor.db` by session; choose a
+session with `--session-id` and a database with `--database`.
 
 To review existing code instead, provide `--code`:
 
@@ -72,7 +73,24 @@ To review existing code instead, provide `--code`:
 codementor "Review this function" --language Python --code "def add(a, b): return a + b"
 ```
 
+Launch the Gradio workspace for interactive sessions:
+
+```powershell
+codementor --ui --database codementor.db
+```
+
+The UI is a local mini-IDE. Projects are stored under `projects/`, files autosave as
+you edit them, and paths such as `src/app.py` create folders automatically. Choose a
+language from the task bar, ask CodeMentor to modify the open file, and use **Run
+project** to execute it. Python files under `tests/` or named `test_*.py` are written
+to disk and run automatically with `pytest`.
+
+The UI keeps the session transcript in SQLite and passes bounded historical context to
+all agents. Historical text is marked as untrusted context, common credential formats
+are redacted before storage/model calls, request sizes are bounded, and agents are
+instructed not to claim execution or reveal secrets.
+
 ## Scope Boundary
 
-This implementation is Basic. Memory, vector
-stores, RAG, databases, Gradio, and other Week 2 components are not included.
+This implementation uses local SQLite memory. It does not include vector stores, RAG,
+code execution, authentication, or multi-user database hosting.

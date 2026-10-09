@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -m pytest -q tests\\\\test_memory_and_guardrails.py 2>&1 | Select-Object -Last 3; $s = \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\\\\gradio\"; Remove-Item -Recurse -Force $s -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force $s | Out-Null; Copy-Item -Recurse projects \"$s\\\\projects\"; \"copied\")",
+      "PowerShell(node \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\\\\e2e\\\\gradio2.js\")",
+      "PowerShell($f = \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\\\\e2e\\\\gradio2.js\"; \\(Get-Content $f -Raw\\).Replace\\('page.locator\\(\"#cm-explorer .cm-target\"\\).innerText\\(\\)', 'page.locator\\(\"#cm-explorer .cm-target\"\\).first\\(\\).innerText\\(\\)'\\) | Set-Content -Encoding utf8 $f; node $f)",
+      "Read(//c/Users/Dawit/AppData/Local/Temp/claude/c--Users-Dawit-git-CodeMentor-AI-Agent/e6a4a0ec-a31b-4013-92c7-246cf28d383c/scratchpad/e2e/**)",
+      "Bash(python3 -)",
+      "Bash(/c/Users/Dawit/git/CodeMentor-AI-Agent/.venv/Scripts/python.exe -)",
+      "PowerShell($s = \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\"; Remove-Item -Force \"$s\\\\gradio\\\\projects\\\\Calculator\\\\untitled_6.py\" -ErrorAction SilentlyContinue; node \"$s\\\\e2e\\\\gradio2.js\")",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -c \"import gradio as gr, inspect; from gradio.events import EventListener; print\\([ \\(e.event_name, e.trigger_mode\\) for e in gr.Code.EVENTS if not isinstance\\(e,str\\)]\\)\")",
+      "PowerShell(Get-NetTCPConnection -LocalPort 7872 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -Confirm:$false }; $s = \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\\\\gradio\"; Remove-Item -Recurse -Force \"$s\\\\projects\"; Copy-Item -Recurse projects \"$s\\\\projects\"; \"reset\")",
+      "PowerShell(Get-ChildItem projects\\\\Calculator -File | Select-Object Name, Length, LastWriteTime; Get-NetTCPConnection -LocalPort 7860,7861 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { \"$\\($_.LocalPort\\) -> PID $\\($_.OwningProcess\\)\" })",
+      "PowerShell(node \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\\\\e2e\\\\dom.js\")",
+      "PowerShell(Start-Sleep -Seconds 8; $d = \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\\\\e2e\"; node \"$d\\\\icon.js\"; node \"$d\\\\gradio2.js\")",
+      "PowerShell(node \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\\\\e2e\\\\chat.js\")",
+      "PowerShell(Get-ChildItem -Recurse projects | Select-Object @{n='Path';e={$_.FullName.Replace\\(\\(Get-Location\\).Path+'\\\\',''\\)}}, Length, LastWriteTime | Format-Table -AutoSize | Out-String -Width 200; Get-NetTCPConnection -LocalPort 7860,7861 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-CimInstance Win32_Process -Filter \"ProcessId=$\\($_.OwningProcess\\)\"; \"$\\($_.LocalPort\\) PID $\\($_.OwningProcess\\) started $\\($p.CreationDate\\)\" })",
+      "PowerShell(Get-NetTCPConnection -LocalPort 7872 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -Confirm:$false }; .venv\\\\Scripts\\\\python.exe -m pytest -q tests\\\\test_memory_and_guardrails.py 2>&1 | Select-Object -Last 2)",
+      "Bash(.venv/Scripts/python.exe -m pytest -q tests/test_memory_and_guardrails.py)",
+      "PowerShell(node \"C:\\\\Users\\\\Dawit\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Dawit-git-CodeMentor-AI-Agent\\\\e6a4a0ec-a31b-4013-92c7-246cf28d383c\\\\scratchpad\\\\e2e\\\\round4.js\")"
+    ]
+  }
+}
