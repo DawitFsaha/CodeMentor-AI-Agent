@@ -106,10 +106,17 @@ def test_project_runner_executes_nested_python_files_and_blocks_traversal():
     )
 
     output = run_project(files, "main.py", "Python")
-    assert "Exit code: 0" in output
-    assert "1 passed" in output
+    program, tests = output.split("\n\n")
+    assert program == "=== Program: python main.py ===\nExit code: 0\n42"
+    assert tests.startswith("=== Tests: python -m pytest")
+    assert "1 passed" in tests
     with pytest.raises(ValueError, match="Unsafe project path"):
         parse_project_files('{"../escape.py": "print(1)"}')
+
+
+def test_project_runner_without_tests_only_runs_the_program():
+    output = run_project({"app.py": "print('hi')", "tests/helper.py": ""}, language="Python")
+    assert output == "=== Program: python app.py ===\nExit code: 0\nhi"
 
 
 def test_project_store_persists_project_structure(tmp_path):

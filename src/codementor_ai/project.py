@@ -101,36 +101,67 @@ def explorer_entries(root_dir: str, expanded: Iterable[str] = ()) -> List[TreeEn
 
 
 def run_project(files: Mapping[str, str], entrypoint: str = "", language: str = "") -> str:
-    """Run one supported entrypoint in a temporary directory with no shell."""
+    """Run the program, then its pytest suite if it has one, in a temporary copy of the project.
+
+    Both outputs are returned so the user sees what the program prints as well as the
+    test results. Each command runs without a shell and has its own timeout.
+    """
     validated = parse_project_files(project_json(files))
     entrypoint = _entrypoint(validated, entrypoint, language)
     if entrypoint not in validated:
         raise ValueError(f"Entrypoint '{entrypoint}' is not in the project.")
-    command = _command_for(validated, language, entrypoint)
+    commands = [("Program", _command_for(language, entrypoint))]
+    if _is_python(language, entrypoint) and any(_is_test_file(path) for path in validated):
+        commands.append(("Tests", [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]))
     with tempfile.TemporaryDirectory(prefix="codementor-") as directory:
         root = Path(directory)
         for path, content in validated.items():
             target = root.joinpath(*PurePosixPath(path).parts)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
-        environment = os.environ.copy()
-        environment["PYTHONNOUSERSITE"] = "1"
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=root,
-                env=environment,
-                # No keyboard is attached: input() raises EOFError instead of hanging.
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=EXECUTION_TIMEOUT_SECONDS,
-                shell=False,
-            )
-        except subprocess.TimeoutExpired:
-            return f"Timed out after {EXECUTION_TIMEOUT_SECONDS} seconds."
+        sections = [f"=== {title}: {_display(command)} ===\n{_execute(command, root)}" for title, command in commands]
+    return "\n\n".join(sections)
+
+
+def _execute(command: list[str], root: Path) -> str:
+    environment = os.environ.copy()
+    environment["PYTHONNOUSERSITE"] = "1"
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            env=environment,
+            # No keyboard is attached: input() raises EOFError instead of hanging.
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=EXECUTION_TIMEOUT_SECONDS,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired:
+        return f"Timed out after {EXECUTION_TIMEOUT_SECONDS} seconds."
+    except FileNotFoundError:
+        return f"Could not start '{command[0]}'. Is it installed and on PATH?"
     output = (completed.stdout + completed.stderr).strip()
     return f"Exit code: {completed.returncode}\n{output or '(no output)'}"
+
+
+def _display(command: list[str]) -> str:
+    """Readable command line, e.g. 'python main.py' instead of the interpreter's full path."""
+    program = "python" if command[0] == sys.executable else command[0]
+    return " ".join([program, *command[1:]])
+
+
+def _is_test_file(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
+
+
+def _is_python(language: str, entrypoint: str) -> bool:
+    return Path(entrypoint).suffix.lower() == ".py" or (
+        not Path(entrypoint).suffix and language.lower().strip() in ("python", "py")
+    )
 
 
 def _validate_path(raw_path: object) -> str:
@@ -147,26 +178,23 @@ def _entrypoint(files: Mapping[str, str], entrypoint: str, language: str) -> str
         return _validate_path(entrypoint)
     normalized = language.lower().strip()
     suffixes = (".js",) if normalized in ("javascript", "js") else (".py",)
-    candidates = [path for path in files if Path(path).suffix.lower() in suffixes]
+    # Test files are run by pytest, never as the program itself.
+    candidates = [
+        path for path in files if Path(path).suffix.lower() in suffixes and not _is_test_file(path)
+    ]
     for preferred in ("main.py", "index.py", "main.js", "index.js"):
         if preferred in candidates:
             return preferred
     if candidates:
-        return sorted(candidates)[0]
+        return min(candidates)
     raise ValueError("No runnable source file exists in the project.")
 
 
-def _command_for(files: Mapping[str, str], language: str, entrypoint: str) -> list[str]:
+def _command_for(language: str, entrypoint: str) -> list[str]:
     normalized = language.lower().strip()
     suffix = Path(entrypoint).suffix.lower()
-    if normalized in ("python", "py") or suffix == ".py":
-        has_tests = any(
-            Path(path).name.startswith("test_") and Path(path).suffix == ".py"
-            for path in files
-        )
-        if has_tests:
-            return [sys.executable, "-m", "pytest", "-q"]
+    if suffix == ".py" or (not suffix and normalized in ("python", "py")):
         return [sys.executable, *PurePosixPath(entrypoint).parts]
-    if normalized in ("javascript", "js") or suffix == ".js":
+    if suffix == ".js" or (not suffix and normalized in ("javascript", "js")):
         return ["node", *PurePosixPath(entrypoint).parts]
-    raise ValueError("Run currently supports Python and JavaScript projects.")
+    raise ValueError("Run currently supports Python (.py) and JavaScript (.js) files.")

@@ -425,9 +425,19 @@ def create_app(workflow: Optional[CodeMentorWorkflow] = None) -> Any:
     def reject_all(proposals):
         return [], f"Rejected {len(proposals)} proposed change(s)" if proposals else "Nothing to reject"
 
-    def run_code(language: str, project_name: str, files: Dict[str, str]) -> Tuple[str, str]:
+    def run_code(language: str, selected: str, project_name: str, files: Dict[str, str]) -> Tuple[str, str]:
+        # Run the open file when it is a program in this project; otherwise the default entrypoint.
+        entrypoint = ""
+        if selected and project_name:
+            try:
+                relative = Path(selected).relative_to(store.root / project_name).as_posix()
+            except ValueError:
+                relative = ""
+            name = Path(relative).name
+            if Path(relative).suffix in (".py", ".js") and not (name.startswith("test_") or name.endswith("_test.py")):
+                entrypoint = relative
         try:
-            output = run_project(files or store.load(project_name), language=language)
+            output = run_project(files or store.load(project_name), entrypoint=entrypoint, language=language)
         except ValueError as error:
             output = f"Run blocked: {error}"
         return output, f"Ran {project_name}"
@@ -686,7 +696,7 @@ def create_app(workflow: Optional[CodeMentorWorkflow] = None) -> Any:
                 api_name=False,
                 show_progress="hidden",
             )
-        run_button.click(run_code, inputs=[language, project_state, files_state], outputs=[run_output, status], api_name=False)
+        run_button.click(run_code, inputs=[language, selected_state, project_state, files_state], outputs=[run_output, status], api_name=False)
         clear_button.click(clear, inputs=project_state, outputs=[chat, status], api_name=False)
         # Each project has its own chat: load it on page load and whenever the active project changes.
         app.load(load_chat, inputs=project_state, outputs=chat, api_name=False)

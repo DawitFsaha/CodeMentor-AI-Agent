@@ -290,12 +290,15 @@ Additional guardrails in the implementation:
   every file path is validated before reading or writing.
 - **Run project** (`project.run_project`):
   1. Copies the project into a temporary directory.
-  2. Chooses the command: `pytest -q` when the project contains `test_*.py` files;
-     otherwise the entrypoint (`main.py`, `index.py`, `main.js`, or `index.js`) with Python
-     or Node.
-  3. Runs it without a shell, with stdin closed, user site-packages disabled, and a
-     10-second timeout.
-  4. Returns the exit code and combined output to the IDE.
+  2. Runs the **program**: the open file if it is a `.py` or `.js` source file (not a
+     test), otherwise the entrypoint (`main.py`, `index.py`, `main.js`, or `index.js`)
+     with Python or Node.
+  3. Runs the **tests** with `pytest -q` if it is a Python project containing `test_*.py`
+     files.
+  4. Each command runs without a shell, with stdin closed, user site-packages disabled,
+     and its own 10-second timeout.
+  5. Returns a "Program" section and, if there are tests, a "Tests" section, each with the
+     exit code and output.
 
 This limits accidents but is **not a security sandbox**: code runs with the user's
 permissions. The agents themselves never execute code.
