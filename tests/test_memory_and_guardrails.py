@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from agents import WebSearchTool
 
 from codementor_ai.agents import build_agents
 from codementor_ai.guardrails import redact_secrets
@@ -56,6 +57,17 @@ def test_agents_are_told_not_to_read_user_input():
     agents = build_agents()
     for agent in agents.values():
         assert "never use input()" in agent.instructions
+
+
+def test_only_writer_and_reviewer_can_search_the_web():
+    agents = build_agents()
+    searchers = {
+        name for name, agent in agents.items()
+        if any(isinstance(tool, WebSearchTool) for tool in agent.tools)
+    }
+    assert searchers == {"code_writer", "reviewer"}
+    assert "Sources" in agents["code_writer"].instructions
+    assert "Sources" in agents["coordinator"].instructions
 
 
 def test_workflow_persists_sanitized_result_and_reuses_session_context(tmp_path, monkeypatch):

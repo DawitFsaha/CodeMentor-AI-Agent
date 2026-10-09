@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import difflib
+import html
 import os
 import re
 import shutil
@@ -33,8 +35,53 @@ EDITOR_LANGUAGES = {
 
 
 def _generated_source(value: str) -> str:
+    """First fenced code block in an agent answer, or "" when the answer contains no code."""
     matches = re.findall(r"```(?:[A-Za-z0-9_+.-]+)?\s*\n(.*?)```", value, re.DOTALL)
-    return matches[0].strip() if matches else value.strip()
+    return matches[0].strip() + "\n" if matches and matches[0].strip() else ""
+
+
+def _same_text(first: str, second: Optional[str]) -> bool:
+    """Equal apart from line endings and trailing newlines (the editor drops the final newline)."""
+    if second is None:
+        return False
+    return first.replace("\r\n", "\n").rstrip("\n") == second.replace("\r\n", "\n").rstrip("\n")
+
+
+def _disk_text(path: str) -> Optional[str]:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+
+
+def diff_stats(original: str, proposed: str) -> Tuple[int, int]:
+    """Number of added and removed lines between two file versions."""
+    added = removed = 0
+    for line in difflib.unified_diff(original.splitlines(), proposed.splitlines(), lineterm="", n=0):
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return added, removed
+
+
+def diff_html(original: str, proposed: str) -> str:
+    """Render a unified diff as escaped HTML lines, colored by CSS classes (no scripts)."""
+    lines = list(difflib.unified_diff(original.splitlines(), proposed.splitlines(), lineterm="", n=3))[2:]
+    if not lines:
+        return '<div class="cm-diff"><div class="cm-diff-line cm-diff-hunk">No changes</div></div>'
+    rows = []
+    for line in lines:
+        if line.startswith("@@"):
+            kind = "hunk"
+        elif line.startswith("+"):
+            kind = "add"
+        elif line.startswith("-"):
+            kind = "del"
+        else:
+            kind = "ctx"
+        rows.append(f'<div class="cm-diff-line cm-diff-{kind}">{html.escape(line) or "&nbsp;"}</div>')
+    return '<div class="cm-diff">' + "".join(rows) + "</div>"
 
 
 def _path_value(value: Any) -> str:
@@ -249,12 +296,13 @@ def create_app(workflow: Optional[CodeMentorWorkflow] = None) -> Any:
         history: Optional[List[Dict[str, str]]],
         project_name: str,
         files: Dict[str, str],
-        expanded: Set[str],
-        version: int,
-    ) -> Tuple[Any, Any, Dict[str, str], Any, Set[str], int]:
+        proposals: List[Dict[str, Any]],
+    ) -> Tuple[Any, Any, Dict[str, str], List[Dict[str, Any]]]:
         if not task:
-            return gr.update(), gr.update(), files, gr.update(), expanded, version
-        files, save_status = _save_selected(selected, selected_code, project_name, files)
+            return gr.update(), gr.update(), files, proposals
+        # Save unsaved user edits first; agent output is only proposed, never written here.
+        if selected and not _same_text(selected_code, _disk_text(selected)):
+            files, _ = _save_selected(selected, selected_code, project_name, files)
         history = list(history or [])
         try:
             result = await active_workflow.run(
@@ -271,31 +319,111 @@ def create_app(workflow: Optional[CodeMentorWorkflow] = None) -> Any:
             answer = f"⚠️ {label}: {error}"
             history.append({"role": "assistant", "content": answer})
             _log_chat(project_name, task, answer)
-            return history, "Request failed", files, gr.update(), expanded, version
+            return history, "Request failed", files, proposals
 
-        written: List[Path] = []
+        new_proposals: List[Dict[str, Any]] = []
         source = _generated_source(result.code)
-        if source:
-            files, save_status = _save_selected(selected, source, project_name, files)
-            if selected:
-                written.append(Path(selected))
+        if source and selected and _inside_root(Path(selected)):
+            new_proposals.append(_proposal(Path(selected), source, "Implementation"))
         if language == "Python" and project_name:
             tests = _generated_source(result.tests)
             if tests:
-                stem = Path(selected).stem if selected else "main"
+                stem = Path(selected).stem.removeprefix("test_") if selected else "main"
                 test_path = store.root / project_name / "tests" / f"test_{stem}.py"
-                test_path.parent.mkdir(parents=True, exist_ok=True)
-                test_path.write_text(tests, encoding="utf-8")
-                written.append(test_path)
-                files = store.load(project_name)
-        history.append({"role": "assistant", "content": result.final_response})
-        _log_chat(project_name, task, result.final_response)
-        # Expand the folders that received generated files and re-render the Explorer.
+                if all(p["path"] != str(test_path) for p in new_proposals):
+                    new_proposals.append(_proposal(test_path, tests, "Tests"))
+        new_proposals = [p for p in new_proposals if p["content"] != p["original"]]
+
+        answer = result.final_response
+        _log_chat(project_name, task, answer)
+        if new_proposals:
+            summary = ", ".join(f"`{p['relative']}`" for p in new_proposals)
+            answer += (
+                f"\n\n---\n📝 **{len(new_proposals)} proposed change(s) waiting for your review** "
+                f"below the editor: {summary}. Nothing has been saved yet."
+            )
+            status_text = "Review the proposed changes below the editor"
+        else:
+            status_text = "No file changes proposed"
+        history.append({"role": "assistant", "content": answer})
+        return history, status_text, files, new_proposals
+
+    def _proposal(path: Path, content: str, kind: str) -> Dict[str, Any]:
+        """A pending, unsaved change: the agent's content plus the file as it is on disk now."""
+        try:
+            original = path.read_text(encoding="utf-8") if path.is_file() else ""
+        except (OSError, ValueError):
+            original = ""
+        return {
+            "path": str(path),
+            "relative": _relative(path),
+            "kind": kind,
+            "content": content,
+            "original": original,
+            "is_new": not path.exists(),
+        }
+
+    def _apply(
+        accepted: List[Tuple[Dict[str, Any], str]],
+        proposals: List[Dict[str, Any]],
+        selected: str,
+        project_name: str,
+        files: Dict[str, str],
+        expanded: Set[str],
+        version: int,
+    ):
+        """Write accepted proposals to disk, then refresh the editor, Explorer, and file state."""
         expanded = set(expanded)
-        for path in written:
-            if _inside_root(path):
-                expanded |= _ancestors(path)
-        return history, f"{save_status}. Files updated.", files, source or gr.update(), expanded, version + 1
+        editor = gr.update()
+        saved, failed = [], []
+        for proposal, content in accepted:
+            path = Path(proposal["path"])
+            try:
+                if not _inside_root(path):
+                    raise ValueError("outside the projects folder")
+                parts = Path(_relative(path)).parts
+                store.save(parts[0], {Path(*parts[1:]).as_posix(): content})
+            except (OSError, ValueError) as error:
+                failed.append(f"{proposal['relative']} ({error})")
+                continue
+            saved.append(proposal["path"])
+            expanded |= _ancestors(path)
+            if proposal["path"] == selected:
+                editor = gr.update(value=content)
+        remaining = [p for p in proposals if p["path"] not in saved]
+        if project_name and saved:
+            try:
+                files = store.load(project_name)
+            except ValueError:
+                pass
+        message = f"Saved {', '.join(_relative(Path(p)) for p in saved)}" if saved else ""
+        if failed:
+            message = (message + ". " if message else "") + f"Could not save {', '.join(failed)}"
+        return remaining, editor, files, expanded, version + 1, message or "Nothing to save"
+
+    def accept_proposal(path: str):
+        def handler(content, proposals, selected, project_name, files, expanded, version):
+            match = [p for p in proposals if p["path"] == path]
+            if not match:
+                return proposals, gr.update(), files, expanded, version, "That change was already handled"
+            return _apply([(match[0], content)], proposals, selected, project_name, files, expanded, version)
+
+        return handler
+
+    def reject_proposal(path: str):
+        def handler(proposals):
+            remaining = [p for p in proposals if p["path"] != path]
+            return remaining, f"Rejected changes to {_relative(Path(path))}"
+
+        return handler
+
+    def accept_all(proposals, selected, project_name, files, expanded, version, *edited):
+        # Edited contents arrive in the same order as the proposals were rendered.
+        accepted = [(p, edited[i] if i < len(edited) else p["content"]) for i, p in enumerate(proposals)]
+        return _apply(accepted, proposals, selected, project_name, files, expanded, version)
+
+    def reject_all(proposals):
+        return [], f"Rejected {len(proposals)} proposed change(s)" if proposals else "Nothing to reject"
 
     def run_code(language: str, project_name: str, files: Dict[str, str]) -> Tuple[str, str]:
         try:
@@ -345,6 +473,19 @@ def create_app(workflow: Optional[CodeMentorWorkflow] = None) -> Any:
     .cm-chat-header { align-items: center; }
     .cm-composer { align-items: stretch; gap: 8px; }
     .cm-composer textarea { resize: none; }
+    #cm-review .cm-review-header, #cm-review .cm-proposal-header { align-items: center; }
+    #cm-review .cm-proposal { border: 1px solid var(--border-color-primary); border-radius: 8px; padding: 8px; }
+    #cm-review .cm-editor { max-height: 360px; }
+    #cm-review .cm-scroller { overflow: auto !important; }
+    .cm-diff {
+        max-height: 360px; overflow: auto; border: 1px solid var(--border-color-primary); border-radius: 6px;
+        font: 12.5px/1.5 Consolas, monospace; background: #fff;
+    }
+    .cm-diff-line { white-space: pre; padding: 0 10px; min-width: max-content; }
+    .cm-diff-add { background: #dcfce7; color: #14532d; }
+    .cm-diff-del { background: #fee2e2; color: #7f1d1d; }
+    .cm-diff-hunk { background: #eef2ff; color: #4338ca; }
+    .cm-diff-ctx { color: #374151; }
     #cm-status { min-height: 24px; max-height: 24px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     #cm-explorer .cm-tree-delete.cm-confirm {
         flex: 0 0 auto !important; width: auto; padding: 0 8px !important; opacity: 1;
@@ -365,6 +506,8 @@ def create_app(workflow: Optional[CodeMentorWorkflow] = None) -> Any:
         tree_version = gr.State(0)
         # Prompt captured when the user presses Send, so the prompt box can be cleared at once.
         pending_task_state = gr.State("")
+        # Agent-generated file changes waiting for the user to accept or reject them.
+        proposals_state = gr.State([])
         with gr.Row():
             with gr.Column(scale=1, min_width=260):
                 with gr.Row(elem_classes="cm-explorer-actions"):
@@ -443,6 +586,58 @@ def create_app(workflow: Optional[CodeMentorWorkflow] = None) -> Any:
                     )
                     ask_button = gr.Button("Send", variant="primary", scale=1, min_width=80)
                 status = gr.Markdown("Ready", elem_id="cm-status")
+        # Human-in-the-loop review: nothing the agents generate is written until it is accepted here.
+        with gr.Column(elem_id="cm-review"):
+
+            @gr.render(inputs=proposals_state)
+            def render_review(proposals):
+                if not proposals:
+                    return
+                review_inputs = [proposals_state, selected_state, project_state, files_state, expanded_state, tree_version]
+                apply_outputs = [proposals_state, selected_code, files_state, expanded_state, tree_version, status]
+                with gr.Row(equal_height=True, elem_classes="cm-review-header"):
+                    gr.Markdown(
+                        f"### Review proposed changes ({len(proposals)})\n"
+                        "Nothing has been saved yet. Check the diff, optionally edit, then accept or reject."
+                    )
+                    accept_all_button = gr.Button("Accept all", variant="primary", size="sm", scale=0, min_width=110)
+                    reject_all_button = gr.Button("Reject all", variant="stop", size="sm", scale=0, min_width=110)
+                edit_boxes = []
+                for proposal in proposals:
+                    added, removed = diff_stats(proposal["original"], proposal["content"])
+                    label = "new file" if proposal["is_new"] else f"+{added} −{removed}"
+                    with gr.Column(elem_classes="cm-proposal"):
+                        with gr.Row(equal_height=True, elem_classes="cm-proposal-header"):
+                            gr.Markdown(f"**{proposal['kind']}** · `{proposal['relative']}` · {label}")
+                            accept_button = gr.Button("Accept", variant="primary", size="sm", scale=0, min_width=90)
+                            reject_button = gr.Button("Reject", size="sm", scale=0, min_width=90)
+                        with gr.Tabs():
+                            with gr.Tab("Diff"):
+                                gr.HTML(diff_html(proposal["original"], proposal["content"]))
+                            with gr.Tab("Edit before saving"):
+                                edit_box = gr.Code(
+                                    value=proposal["content"],
+                                    language=EDITOR_LANGUAGES.get(Path(proposal["path"]).suffix.lower()),
+                                    interactive=True,
+                                    show_label=False,
+                                    lines=12,
+                                )
+                    edit_boxes.append(edit_box)
+                    accept_button.click(
+                        accept_proposal(proposal["path"]),
+                        inputs=[edit_box] + review_inputs,
+                        outputs=apply_outputs,
+                        api_name=False,
+                    )
+                    reject_button.click(
+                        reject_proposal(proposal["path"]),
+                        inputs=proposals_state,
+                        outputs=[proposals_state, status],
+                        api_name=False,
+                    )
+                accept_all_button.click(accept_all, inputs=review_inputs + edit_boxes, outputs=apply_outputs, api_name=False)
+                reject_all_button.click(reject_all, inputs=proposals_state, outputs=[proposals_state, status], api_name=False)
+
         run_button = gr.Button("Run project", variant="secondary")
         run_output = gr.Code(label="Execution and test output", language="shell", lines=8)
 
@@ -486,8 +681,8 @@ def create_app(workflow: Optional[CodeMentorWorkflow] = None) -> Any:
                 show_progress="hidden",
             ).then(
                 ask_code_mentor,
-                inputs=[pending_task_state, language, selected_state, selected_code, chat, project_state, files_state, expanded_state, tree_version],
-                outputs=[chat, status, files_state, selected_code, expanded_state, tree_version],
+                inputs=[pending_task_state, language, selected_state, selected_code, chat, project_state, files_state, proposals_state],
+                outputs=[chat, status, files_state, proposals_state],
                 api_name=False,
                 show_progress="hidden",
             )
