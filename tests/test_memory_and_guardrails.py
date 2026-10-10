@@ -6,11 +6,11 @@ import pytest
 from agents import WebSearchTool
 
 from codementor_ai.agents import build_agents
-from codementor_ai.guardrails import redact_secrets
-from codementor_ai.memory import SQLiteMemory
+from codementor_ai.core import redact_secrets
+from codementor_ai.core import SQLiteMemory
 from codementor_ai.project import explorer_entries, parse_project_files, run_project
-from codementor_ai.workspace import ProjectStore
-from codementor_ai.workflow import CodeMentorRequest, CodeMentorWorkflow
+from codementor_ai.project import ProjectStore
+from codementor_ai.core import CodeMentorRequest, CodeMentorWorkflow
 
 
 class FakeResult:

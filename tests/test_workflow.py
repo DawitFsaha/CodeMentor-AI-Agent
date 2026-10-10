@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from codementor_ai.workflow import CodeMentorRequest, CodeMentorWorkflow
+from codementor_ai.core import CodeMentorRequest, CodeMentorWorkflow
 
 
 class FakeResult:

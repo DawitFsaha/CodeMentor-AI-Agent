@@ -7,8 +7,7 @@ import asyncio
 
 from dotenv import load_dotenv
 
-from .memory import SQLiteMemory
-from .workflow import CodeMentorRequest, CodeMentorWorkflow
+from .core import CodeMentorRequest, CodeMentorWorkflow, SQLiteMemory
 
 
 def main() -> None:

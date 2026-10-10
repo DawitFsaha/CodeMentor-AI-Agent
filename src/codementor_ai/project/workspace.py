@@ -6,7 +6,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Dict, List
 
-from .project import parse_project_files, project_json
+from .files import parse_project_files, project_json
 
 
 # Starter entry file for a new project, by language.

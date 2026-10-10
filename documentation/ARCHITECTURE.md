@@ -32,13 +32,13 @@ flowchart LR
 
     subgraph Local["Local machine"]
         direction TB
-        UI["Gradio IDE<br/>ui.py"]
+        UI["Gradio IDE<br/>ui/"]
         CLI["Command line<br/>cli.py"]
-        WF["CodeMentorWorkflow<br/>workflow.py"]
-        GR["Guardrails<br/>guardrails.py"]
+        WF["CodeMentorWorkflow<br/>core/workflow.py"]
+        GR["Guardrails<br/>core/guardrails.py"]
         MEM[("SQLite<br/>codementor.db")]
         WS[("projects/ folder")]
-        RUN["Bounded runner<br/>project.py"]
+        RUN["Bounded runner<br/>project/runner.py"]
     end
 
     subgraph OpenAI["OpenAI platform"]
@@ -66,33 +66,61 @@ flowchart LR
 
 ## 2. Components
 
-| Module | Responsibility |
+The package `src/codementor_ai/` is split into four subpackages:
+
+```text
+codementor_ai/
+├── cli.py              codementor command: one-shot requests or --ui to launch the IDE
+├── assets/             UI icons (Explorer delete icon)
+├── agents/             one module per agent
+│   ├── rules.py          instruction fragments shared by several agents
+│   ├── coordinator.py    Coordinator Agent
+│   ├── code_writer.py    Code Writer Agent (web search)
+│   ├── reviewer.py       Code Review & Debugging Agent (web search)
+│   ├── tester.py         Testing Agent: sandbox variant (Python) and no-sandbox variant
+│   └── __init__.py       build_agents(): all agents keyed by workflow role
+├── core/               the multi-agent workflow and what it relies on
+│   ├── workflow.py       CodeMentorRequest/Result, CodeMentorWorkflow, sandbox-claim check
+│   ├── memory.py         SQLiteMemory: agent sessions and per-project chat history
+│   └── guardrails.py     request size limits and secret redaction
+├── project/            project files, languages, checks, execution, storage
+│   ├── files.py          path validation, size limits, prompt tree, Explorer listing
+│   ├── code_blocks.py    reading code (one or several files) out of agent answers
+│   ├── languages.py      target file per language, test locations, what can run
+│   ├── checks.py         static checks: Python test check, Python/JavaScript syntax
+│   ├── runner.py         bounded runner: program then tests (Python, Node.js, Java)
+│   └── workspace.py      ProjectStore and per-language starter files
+└── ui/                 Gradio IDE
+    ├── app.py            page layout and event wiring; launch()
+    ├── context.py        IDEContext: store, workflow, and shared path/file helpers
+    ├── explorer.py       Explorer tree: open, create, double-click rename, delete
+    ├── assistant.py      chat: send requests, build proposals, per-project history
+    ├── review.py         human-in-the-loop review panel: diff, edit, accept, reject
+    ├── run_panel.py      Run project button
+    ├── diff.py           line diffs for the review panel
+    ├── helpers.py        small pure helpers (name rules, syntax warnings, ...)
+    ├── constants.py      languages, editor modes, icon path, double-click timing
+    └── styles.py         CSS
+```
+
+| Package | Responsibility |
 | --- | --- |
-| `agents.py` | Defines the four agents: their instructions, shared rules, and tools (`build_agents`). |
-| `workflow.py` | `CodeMentorRequest` / `CodeMentorResult` data classes and `CodeMentorWorkflow`, which runs the agents in order and stores the exchange in memory. |
-| `guardrails.py` | Input size validation and secret redaction for prompts, memory, and outputs. |
-| `memory.py` | `SQLiteMemory`: agent session memory and per-project chat history. |
-| `project.py` | File-map validation, prompt-friendly project tree, Explorer listing (`explorer_entries`), and the bounded project runner. |
-| `workspace.py` | `ProjectStore`: creates, loads, and saves projects under `projects/` without allowing path escape. |
-| `ui.py` | Gradio IDE: Explorer, editor, chat assistant, review panel, run output. |
+| `agents` | The agents' instructions and tools. Each agent has its own module with a `build_…()` function; `build_agents()` returns them keyed by role (`coordinator`, `code_writer`, `reviewer`, `tester`, `tester_no_sandbox`). |
+| `core` | `CodeMentorWorkflow` runs the agents in order, checks generated tests, and stores each exchange in memory; guardrails validate input and redact secrets. |
+| `project` | Everything about project files that does not involve the UI: validation, language rules, static checks, running programs and tests, and on-disk storage. |
+| `ui` | The Gradio IDE. Each screen area has its own handler class (`ExplorerHandlers`, `AssistantHandlers`, `ReviewHandlers`, `RunHandlers`) sharing one `IDEContext`; `app.py` only builds the layout and connects events to handlers. Gradio is imported only when the IDE starts. |
 | `cli.py` | `codementor` entry point: one-shot requests in the terminal or `--ui` to launch the IDE. |
-| `assets/trash.png` | Explorer delete icon. |
 
 ```mermaid
 flowchart TB
-    cli["cli.py"] --> workflow["workflow.py"]
-    cli --> ui["ui.py"]
-    ui --> workflow
-    ui --> workspace["workspace.py"]
-    ui --> project["project.py"]
-    ui --> memory["memory.py"]
-    workflow --> agents["agents.py"]
-    workflow --> guardrails["guardrails.py"]
-    workflow --> memory
-    workflow --> project
-    workspace --> project
-    agents --> sdk["openai-agents SDK<br/>Agent, Runner, WebSearchTool"]
-    workflow --> sdk
+    cli["cli.py"] --> core["core<br/>workflow, memory, guardrails"]
+    cli --> ui["ui<br/>app, explorer, assistant, review, run_panel"]
+    ui --> core
+    ui --> project["project<br/>files, languages, checks, runner, workspace"]
+    core --> agents["agents<br/>coordinator, code_writer, reviewer, tester"]
+    core --> project
+    agents --> sdk["openai-agents SDK<br/>Agent, Runner, WebSearchTool, CodeInterpreterTool"]
+    core --> sdk
 ```
 
 ---
@@ -210,11 +238,11 @@ flowchart TD
 
 | Step | Implementation |
 | --- | --- |
-| Show prompt immediately | `add_user_message`, chained with `.then(ask_code_mentor)` |
-| Run agents, build proposals | `ask_code_mentor`, `_proposal` |
-| Render review panel | `@gr.render(inputs=proposals_state)` → `render_review` |
-| Diff | `diff_html`, `diff_stats` (Python `difflib`, HTML escaped) |
-| Accept / reject | `accept_proposal`, `accept_all`, `reject_proposal`, `reject_all`, `_apply` |
+| Show prompt immediately | `AssistantHandlers.add_user_message`, chained with `.then(AssistantHandlers.ask)` (`ui/assistant.py`) |
+| Run agents, build proposals | `AssistantHandlers.ask`, `IDEContext.proposal` |
+| Render review panel | `build_review` → `@gr.render(inputs=proposals_state)` (`ui/review.py`) |
+| Diff | `diff_html`, `diff_stats` in `ui/diff.py` (Python `difflib`, HTML escaped) |
+| Accept / reject | `ReviewHandlers.accept_proposal`, `accept_all`, `reject_proposal`, `reject_all`, `apply` |
 
 Other IDE behaviour:
 
@@ -262,8 +290,8 @@ erDiagram
 
 | Store | Used for | Read by | Scope |
 | --- | --- | --- | --- |
-| `messages` | **Agent memory.** The redacted request prompt and the final answer of each run. | `CodeMentorWorkflow._context` (last 12 messages) | One session per project (`project:<name>`); the CLI uses `--session-id`. |
-| `chat_messages` | **Chat history** shown in the IDE. | `load_chat` when the page loads or the active project changes | Per project. |
+| `messages` | **Agent memory.** The redacted request prompt and the final answer of each run. | `CodeMentorWorkflow._context` in `core/workflow.py` (last 12 messages) | One session per project (`project:<name>`); the CLI uses `--session-id`. |
+| `chat_messages` | **Chat history** shown in the IDE. | `AssistantHandlers.load_chat` when the page loads or the active project changes | Per project. |
 | `projects/<name>/` | Source files edited in the IDE. | `ProjectStore`, Explorer | Per project. |
 
 Short-term memory is the in-request chain of agent outputs; long-term memory is the SQLite
@@ -303,9 +331,9 @@ Additional guardrails in the implementation:
 
 | Guardrail | Where |
 | --- | --- |
-| Request limits: task 12,000, code 30,000, language 100 characters | `guardrails.validate_request` |
+| Request limits: task 12,000, code 30,000, language 100 characters | `core/guardrails.py`: `validate_request` |
 | Project limits: 50 files, 50,000 characters per file | `project.parse_project_files` |
-| Path safety: no absolute paths or `..`; deletions only inside `projects/` | `project._validate_path`, `ProjectStore`, `ui._inside_root` |
+| Path safety: no absolute paths or `..`; deletions only inside `projects/` | `project/files.py`: `validate_path`; `ProjectStore`; `IDEContext.inside_root` |
 | Untrusted history, code, logs, and web content | Agent instructions and `<session_context>` wrapper |
 | Non-interactive code (no `input()`) | Shared agent rule; runner closes stdin |
 | Human approval before writing generated code | IDE review panel (section 5) |
@@ -317,7 +345,7 @@ Additional guardrails in the implementation:
 
 - `ProjectStore` keeps each project in `projects/<name>/`. Project names are sanitized and
   every file path is validated before reading or writing.
-- **Run project** (`project.run_project`):
+- **Run project** (`project/runner.py`: `run_project`):
   1. Copies the project into a temporary directory.
   2. Runs the **program**: the open file if it is a `.py`, `.js`, or `.java` source file
      (not a test), otherwise the entrypoint (`main.py`, `index.py`, `main.js`, `index.js`,
@@ -346,13 +374,13 @@ tests only in OpenAI's hosted code interpreter sandbox.
 
 | Course requirement | Status | Implementation |
 | --- | --- | --- |
-| Multi-agent system with the OpenAI Agents Framework | Done | Four agents in `agents.py`, run with `Runner` |
+| Multi-agent system with the OpenAI Agents Framework | Done | Four agents in `agents/` (one module each), run with `Runner` |
 | Agent responsibilities, instructions, inputs/outputs, guardrails | Done | Sections 3 and 8 |
 | Agent pattern | Done | Sequential pipeline with a coordinator (section 4) |
 | Memory (short- and long-term) | Done | SQLite session memory and chat history (section 6) |
 | Knowledge integration: vector store and RAG | **Not implemented** | Hosted web search provides live external knowledge; there is no vector store or retrieval over project documents yet |
 | Database | Done | SQLite (`codementor.db`) |
-| Gradio UI | Done | `ui.py` (section 5) |
+| Gradio UI | Done | `ui/` package (section 5) |
 | Context engineering | Done | Section 7 |
 
 ---

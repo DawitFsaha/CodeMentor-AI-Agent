@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from codementor_ai.memory import SQLiteMemory
+from codementor_ai.core import SQLiteMemory
 from codementor_ai.project import check_python_tests, extract_files, run_project
-from codementor_ai.ui import _name_problem
+from codementor_ai.ui.helpers import name_problem as _name_problem
 
 
 def test_extract_files_reads_labelled_blocks_and_skips_examples():

@@ -8,10 +8,8 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from agents import Runner
 
-from .agents import build_agents
-from .guardrails import redact_secrets, sanitize_output, validate_request
-from .memory import SQLiteMemory
-from .project import (
+from ..agents import build_agents
+from ..project import (
     check_python_tests,
     extract_code_block,
     extract_files,
@@ -21,6 +19,8 @@ from .project import (
     python_test_target,
     test_target,
 )
+from .guardrails import redact_secrets, sanitize_output, validate_request
+from .memory import SQLiteMemory
 
 
 _SANDBOX_CLAIM = re.compile(r"^.*Executed in sandbox.*$", re.IGNORECASE | re.MULTILINE)

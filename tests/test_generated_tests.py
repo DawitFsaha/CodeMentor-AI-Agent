@@ -5,9 +5,9 @@ import asyncio
 from agents import CodeInterpreterTool
 
 from codementor_ai.agents import build_agents
-from codementor_ai.memory import SQLiteMemory
+from codementor_ai.core import SQLiteMemory
 from codementor_ai.project import MAX_TEST_FUNCTIONS, check_python_tests, python_test_target
-from codementor_ai.workflow import CodeMentorRequest, CodeMentorWorkflow, verify_sandbox_claim
+from codementor_ai.core import CodeMentorRequest, CodeMentorWorkflow, verify_sandbox_claim
 
 
 CODE = "def add(a, b):\n    return a + b\n"

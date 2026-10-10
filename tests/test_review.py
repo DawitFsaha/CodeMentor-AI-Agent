@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from codementor_ai.ui import _generated_source, diff_html, diff_stats
+from codementor_ai.ui.diff import diff_html, diff_stats
+from codementor_ai.ui.helpers import generated_source as _generated_source
 
 
 def test_diff_stats_counts_added_and_removed_lines():

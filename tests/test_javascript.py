@@ -11,7 +11,7 @@ from codementor_ai.project import (
     target_for_language,
     test_target,
 )
-from codementor_ai.workspace import ProjectStore
+from codementor_ai.project import ProjectStore
 
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js on PATH")
 
