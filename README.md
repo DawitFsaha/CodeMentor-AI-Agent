@@ -12,7 +12,7 @@ whether to save them.
 | **Coordinator** | Understands the request, plans the work, and combines the results into one answer. |
 | **Code Writer** | Writes or changes the code. Can search the web for current library docs. |
 | **Code Reviewer & Debugger** | Finds bugs and risks and suggests fixes. Can search the web for deprecations and security issues. |
-| **Tester** | Writes normal and edge-case tests. |
+| **Tester** | Writes a few focused tests for the main functionality and runs them in OpenAI's hosted sandbox before answering, so they pass. |
 
 ## How a request flows
 
@@ -46,9 +46,23 @@ py -m venv .venv
 python -m pip install -e .
 Copy-Item .env.example .env      # then set OPENAI_API_KEY in .env
 codementor --ui                  # opens the IDE at http://127.0.0.1:7860
+codementor --ui --port 8100      # use another port if 7860 is busy or reserved
 ```
 
 Run the tests with `python -m pytest -q`. They use fake agents, so no API key is needed.
+
+**Languages:** projects can be written in Python, JavaScript (needs Node.js), or Java (needs a
+JDK with `javac` and `java` on PATH).
+
+- Pick the language in the dropdown before clicking **＋**: a new project starts with
+  `main.py`, `main.js`, or `Main.java`.
+- The dropdown follows the open file. If you change it to another language, the assistant
+  writes a new file in that language (for example `main.js` next to `main.py`) instead of
+  rewriting the open one.
+- JavaScript runs with Node.js as CommonJS (`require` / `module.exports`); tests use Node's
+  built-in `node:test` and run as `tests/<name>.test.js`.
+- Java is compiled with plain `javac`, so it can use the standard library only.
+- Generated tests are run in the sandbox before you see them only for Python.
 
 You can also make a single request from the terminal:
 

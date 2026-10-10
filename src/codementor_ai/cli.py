@@ -20,11 +20,17 @@ def main() -> None:
     parser.add_argument("--session-id", default="default", help="Conversation session ID")
     parser.add_argument("--database", default="codementor.db", help="SQLite memory database")
     parser.add_argument("--ui", action="store_true", help="Launch the Gradio interface")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port for the Gradio interface (default: 7860, or the next free port)",
+    )
     args = parser.parse_args()
     if args.ui:
         from .ui import launch
 
-        launch(database_path=args.database)
+        launch(database_path=args.database, **({"server_port": args.port} if args.port else {}))
         return
     if not args.task:
         parser.error("task is required unless --ui is used")

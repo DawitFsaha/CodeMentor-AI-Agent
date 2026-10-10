@@ -97,6 +97,15 @@ class SQLiteMemory:
             ).fetchall()
         return [MemoryMessage(*row) for row in reversed(rows)]
 
+    def rename_project(self, old: str, new: str) -> None:
+        """Keep a project's chat history and agent session when its folder is renamed."""
+        with self._connect() as connection:
+            connection.execute("UPDATE chat_messages SET project = ? WHERE project = ?", (new, old))
+            connection.execute(
+                "UPDATE messages SET session_id = ? WHERE session_id = ?",
+                (f"project:{new}", f"project:{old}"),
+            )
+
     def clear_chat(self, project: str) -> None:
         with self._connect() as connection:
             connection.execute("DELETE FROM chat_messages WHERE project = ?", (project,))

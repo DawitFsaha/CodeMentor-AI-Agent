@@ -9,6 +9,21 @@ from typing import Dict, List
 from .project import parse_project_files, project_json
 
 
+# Starter entry file for a new project, by language.
+STARTER_FILES = {
+    "Python": ("main.py", "print('Hello from CodeMentor')\n"),
+    "JavaScript": ("main.js", 'console.log("Hello from CodeMentor");\n'),
+    "Java": (
+        "Main.java",
+        "public class Main {\n"
+        "    public static void main(String[] args) {\n"
+        '        System.out.println("Hello from CodeMentor");\n'
+        "    }\n"
+        "}\n",
+    ),
+}
+
+
 class ProjectStore:
     """Store project files under a local directory without allowing path escape."""
 
@@ -19,13 +34,15 @@ class ProjectStore:
     def list_projects(self) -> List[str]:
         return sorted(path.name for path in self.root.iterdir() if path.is_dir())
 
-    def create(self, name: str) -> str:
+    def create(self, name: str, language: str = "Python") -> str:
+        """Create a project with a starter entry file in the chosen language."""
         project_name = _safe_project_name(name)
         directory = self.root / project_name
         directory.mkdir(parents=True, exist_ok=True)
-        main = directory / "main.py"
+        filename, content = STARTER_FILES.get(language, STARTER_FILES["Python"])
+        main = directory / filename
         if not main.exists():
-            main.write_text("print('Hello from CodeMentor')\n", encoding="utf-8")
+            main.write_text(content, encoding="utf-8")
         return project_name
 
     def load(self, name: str) -> Dict[str, str]:

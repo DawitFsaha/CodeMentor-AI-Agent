@@ -44,6 +44,7 @@ flowchart LR
     subgraph OpenAI["OpenAI platform"]
         LLM["Responses API<br/>default model gpt-4.1"]
         WEB["Hosted web search"]
+        CI["Hosted code interpreter<br/>sandbox"]
     end
 
     User --> UI
@@ -58,6 +59,7 @@ flowchart LR
     RUN --> WS
     WF -- "Runner.run x5" --> LLM
     LLM -. "Code Writer and Reviewer only" .-> WEB
+    LLM -. "Testing Agent only" .-> CI
 ```
 
 ---
@@ -105,7 +107,7 @@ default model (`gpt-4.1`) unless a model name is passed to `build_agents(model=.
 | **Coordinator Agent** | Called twice: first writes a routing brief; at the end assembles the final answer. | — | Keep the request in scope; never claim execution without evidence; keep the specialists' web sources in a "Sources" section. |
 | **Code Writer Agent** | Generates or modifies code from the request and routing brief. | `WebSearchTool` | Return complete code plus a short note; do not review or test; search for current APIs, deprecations, error meanings, and security advisories when needed, and cite sources. |
 | **Code Review & Debugging Agent** | Reviews the proposed code. | `WebSearchTool` | Separate confirmed defects from hypotheses; report any input-reading call as a defect; verify suspected deprecations or vulnerable versions with a search before confirming them. |
-| **Testing Agent** | Writes tests for the proposed code and review findings. | — | Return runnable tests in one fenced code block; call functions directly; never require keyboard input. |
+| **Testing Agent** | Writes a small test file for the main functionality. For Python it runs the tests in a hosted sandbox; for Java (JUnit 5) and JavaScript a sandbox-free variant (`tester_no_sandbox`) answers "Not executed", because the sandbox only runs Python. | `CodeInterpreterTool` (tool use required), Python only | 3–5 tests, never more than 6; every test must pass against the code as written; no tests for suspected issues, printed output, or the demo block; fix failing tests in the sandbox before answering; end with "Executed in sandbox: N passed". |
 
 Rules shared by every agent:
 
@@ -150,8 +152,13 @@ sequenceDiagram
     Wr-->>W: proposed code (may use web search)
     W->>Rv: context + request + proposed code
     Rv-->>W: review findings (may use web search)
-    W->>T: context + request + code + review
-    T-->>W: tests
+    W->>T: context + request + code + review + test setup (file name, import line)
+    T-->>W: tests run in the hosted sandbox
+    W->>W: verify a sandbox run was recorded,<br/>static check (syntax, imports, test count)
+    opt static problems found
+        W->>T: same prompt + list of problems
+        T-->>W: corrected tests
+    end
     W->>Co: "assemble final response" + all outputs
     Co-->>W: final response
     W->>G: sanitize_output(each output)
@@ -159,8 +166,21 @@ sequenceDiagram
     W-->>C: CodeMentorResult(routing_brief, code, review, tests, final_response)
 ```
 
-Each request makes **five model calls**, plus any web searches made by the Code Writer or
-Reviewer. The result keeps every intermediate output, so callers can use the code and tests
+Each request makes **five model calls** (six if the tests need one retry), plus any web
+searches by the Code Writer or Reviewer and one code interpreter session for the Tester.
+
+**Test quality checks.** The Tester is told where its file is saved (`tests/test_<name>.py`)
+and how to import the code (`from main import ...`). It must run the tests in OpenAI's
+hosted sandbox (`tool_choice="required"`). The workflow then:
+
+1. Keeps the line "Executed in sandbox: N passed" only if the run really contains a
+   `code_interpreter_call`; otherwise it is replaced with "Not executed".
+2. Parses the code and tests locally without running them (`check_python_tests`):
+   syntax errors, a missing or wrong import of the code under test, imported names the
+   code does not define, and more than six tests.
+3. Gives the Tester one retry with the list of problems if any were found.
+
+The result keeps every intermediate output, so callers can use the code and tests
 separately from the final text.
 
 ---
@@ -201,6 +221,15 @@ Other IDE behaviour:
 - **Explorer:** a tree of the whole `projects/` folder, built with `@gr.render` from
   `explorer_entries`. Clicking a file opens it; clicking a folder expands it and makes it
   the target for new items. Each row has a delete button with a confirmation click.
+  **Double-clicking** a file, folder, or project turns the row into a text box to rename it
+  (Enter or ✓ saves, ✕ cancels). Gradio buttons have no double-click event, so two clicks
+  on the same row within 0.8 seconds, timed on the server, count as a double-click.
+  Renaming a project moves its chat history and agent memory to the new name.
+- **Multiple files:** a project can hold several files and folders, and code may import
+  from them (`from utils import add`, `from helpers.text import shout`) because programs
+  and tests run from the project root. The Code Writer can return several files: each
+  extra file is a fenced block preceded by a `File: utils.py` line (`extract_files`), and
+  every file becomes its own proposal in the review panel.
 - **Editor:** fixed height with its own scrollbar; autosaves on user edits only
   (`trigger_mode="always_last"`, hidden progress so the layout does not move).
 - **Chat:** prompts and answers in one thread; history is loaded per project.
@@ -290,18 +319,26 @@ Additional guardrails in the implementation:
   every file path is validated before reading or writing.
 - **Run project** (`project.run_project`):
   1. Copies the project into a temporary directory.
-  2. Runs the **program**: the open file if it is a `.py` or `.js` source file (not a
-     test), otherwise the entrypoint (`main.py`, `index.py`, `main.js`, or `index.js`)
-     with Python or Node.
-  3. Runs the **tests** with `pytest -q` if it is a Python project containing `test_*.py`
-     files.
+  2. Runs the **program**: the open file if it is a `.py`, `.js`, or `.java` source file
+     (not a test), otherwise the entrypoint (`main.py`, `index.py`, `main.js`, `index.js`,
+     or the Java class with a `main` method, preferring `Main.java`).
+     - Python and JavaScript run directly with Python or Node.
+     - **Java** is compiled first: `javac` compiles every non-test `.java` file into
+       `build/`, then `java` runs the class with `main` (its `package` is included in the
+       class name). If compilation fails, the compiler errors are shown and the program is
+       not run. JUnit-style sources (`*Test.java`, or files under `test/` or `tests/`) are
+       skipped because running them needs the JUnit library. Requires a JDK on `PATH`.
+  3. Runs the **tests**: `pytest -q` for a Python program when the project has `test_*.py`
+     files; `node --test` (Node's built-in runner, no npm packages) for a JavaScript program
+     when the project has `*.test.js` files or `.js` files under `test/` or `tests/`.
   4. Each command runs without a shell, with stdin closed, user site-packages disabled,
-     and its own 10-second timeout.
+     and its own timeout: 10 seconds to run, 30 seconds for `javac`.
   5. Returns a "Program" section and, if there are tests, a "Tests" section, each with the
      exit code and output.
 
 This limits accidents but is **not a security sandbox**: code runs with the user's
-permissions. The agents themselves never execute code.
+permissions. The agents never execute code on your machine; the Testing Agent runs its
+tests only in OpenAI's hosted code interpreter sandbox.
 
 ---
 
@@ -325,8 +362,8 @@ permissions. The agents themselves never execute code.
 - **Fixed pipeline.** All five steps always run. The plan's option to skip the Code Writer
   when the user already has code is not implemented.
 - **No vector store or RAG** (see section 10).
-- **Single-file edits.** The assistant proposes changes to the open file and one test file;
-  it cannot create or edit other files in one request.
+- **One test file per request.** The assistant can propose several source files, but
+  tests always go to a single `tests/test_<name>.py`.
 - **Pending proposals are not persisted.** Reloading the page discards them; a new request
   replaces older ones.
 - **No authentication;** intended for local, single-user use (the server binds to
